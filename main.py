@@ -31,7 +31,13 @@ from typing import Optional, Dict, Any, List
 from urllib.parse import quote, unquote
 
 import requests
-import httpx
+try:
+    import httpx
+    HTTPX_AVAILABLE = True
+except ImportError:
+    print("⚠️ httpx not available. Some features may be limited.")
+    HTTPX_AVAILABLE = False
+    httpx = None
 from functools import wraps
 
 from flask import (
@@ -44,11 +50,33 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from dotenv import load_dotenv
-from apscheduler.schedulers.background import BackgroundScheduler
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    SCHEDULER_AVAILABLE = True
+except ImportError:
+    print("⚠️ APScheduler not available. Scheduled tasks will be disabled.")
+    SCHEDULER_AVAILABLE = False
+    BackgroundScheduler = None
 
-# Telegram Bot imports
-from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
+# Telegram Bot imports (optional for production)
+try:
+    from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
+    from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
+    TELEGRAM_AVAILABLE = True
+except ImportError:
+    print("⚠️ Telegram bot dependencies not available. Running in web-only mode.")
+    TELEGRAM_AVAILABLE = False
+    # Define dummy classes to prevent errors
+    class Update: pass
+    class Bot: pass
+    class InlineKeyboardButton: pass
+    class InlineKeyboardMarkup: pass
+    class Application: pass
+    class CommandHandler: pass
+    class MessageHandler: pass
+    class filters: pass
+    class ContextTypes: pass
+    class CallbackQueryHandler: pass
 
 # =========================
 # ENVIRONMENT & CONFIG
@@ -141,7 +169,7 @@ def log(section: str, level: str, message: str, extra: Dict = None):
         "section": section,
         "msg": message,
         "extra": extra or {},
-        "time": datetime.now(datetime.timezone.utc).isoformat()
+        "time": datetime.utcnow().isoformat()
     }
     
     log_level = getattr(logging, level.upper(), logging.INFO)
