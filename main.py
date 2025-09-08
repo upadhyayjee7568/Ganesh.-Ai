@@ -313,6 +313,44 @@ class Referral(db.Model):
     status = db.Column(db.String(20), default='active')  # active, completed
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+class PaymentOrder(db.Model):
+    """Cashfree Payment Orders"""
+    __tablename__ = 'payment_orders'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    order_id = db.Column(db.String(100), unique=True, nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    currency = db.Column(db.String(3), default='INR')
+    purpose = db.Column(db.String(100), nullable=False)  # wallet_topup, premium_monthly, etc.
+    status = db.Column(db.String(20), default='created')  # created, paid, failed, cancelled
+    payment_session_id = db.Column(db.String(200), nullable=True)
+    gateway_response = db.Column(db.Text, nullable=True)  # JSON response from Cashfree
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationship
+    user = db.relationship('User', backref='payment_orders')
+
+class WithdrawalRequest(db.Model):
+    """User Withdrawal Requests"""
+    __tablename__ = 'withdrawal_requests'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    status = db.Column(db.String(20), default='pending')  # pending, processing, completed, failed
+    transfer_id = db.Column(db.String(100), unique=True, nullable=True)
+    bank_details = db.Column(db.Text, nullable=False)  # JSON with bank account details
+    gateway_response = db.Column(db.Text, nullable=True)  # JSON response from Cashfree
+    admin_notes = db.Column(db.Text, nullable=True)
+    processed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationship
+    user = db.relationship('User', backref='withdrawal_requests')
+
 # =========================
 # DATABASE INITIALIZATION
 # =========================
@@ -1321,573 +1359,45 @@ def dashboard():
     api_usage = APIUsage.query.filter_by(user_id=user.id).order_by(APIUsage.created_at.desc()).limit(5).all()
     available_models = ai_manager.get_available_models(user)
     
-    return render_template_string("""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>{{ app_name }} - AI Dashboard</title>
-        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-        <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            
-            body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                background: #0f0f23;
-                color: #ffffff;
-                min-height: 100vh;
-            }
-            
-            .sidebar {
-                position: fixed;
-                left: 0;
-                top: 0;
-                width: 260px;
-                height: 100vh;
-                background: #171717;
-                border-right: 1px solid #2d2d2d;
-                padding: 1rem;
-                overflow-y: auto;
-            }
-            
-            .sidebar-header {
-                padding: 1rem 0;
-                border-bottom: 1px solid #2d2d2d;
-                margin-bottom: 1rem;
-            }
-            
-            .sidebar-header h2 {
-                color: #10a37f;
-                font-size: 1.2rem;
-                margin-bottom: 0.5rem;
-            }
-            
-            .user-info {
-                font-size: 0.9rem;
-                color: #8e8ea0;
-            }
-            
-            .nav-menu {
-                list-style: none;
-            }
-            
-            .nav-menu li {
-                margin-bottom: 0.5rem;
-            }
-            
-            .nav-menu a {
-                display: flex;
-                align-items: center;
-                padding: 0.75rem;
-                color: #8e8ea0;
-                text-decoration: none;
-                border-radius: 0.5rem;
-                transition: all 0.2s;
-            }
-            
-            .nav-menu a:hover, .nav-menu a.active {
-                background: #2d2d2d;
-                color: #ffffff;
-            }
-            
-            .nav-menu i {
-                margin-right: 0.75rem;
-                width: 16px;
-            }
-            
-            .stats-grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 1rem;
-                margin-bottom: 2rem;
-            }
-            
-            .stat-card {
-                background: #1e1e1e;
-                border: 1px solid #2d2d2d;
-                border-radius: 0.75rem;
-                padding: 1.5rem;
-                text-align: center;
-            }
-            
-            .stat-card h3 {
-                color: #8e8ea0;
-                font-size: 0.9rem;
-                margin-bottom: 0.5rem;
-                font-weight: 500;
-            }
-            
-            .stat-card .value {
-                font-size: 2rem;
-                font-weight: bold;
-                color: #10a37f;
-            }
-            
-            .main-content {
-                margin-left: 260px;
-                padding: 2rem;
-                min-height: 100vh;
-            }
-            
-            .chat-container {
-                max-width: 800px;
-                margin: 0 auto;
-                height: calc(100vh - 4rem);
-                display: flex;
-                flex-direction: column;
-            }
-            
-            .chat-header {
-                background: #1e1e1e;
-                border: 1px solid #2d2d2d;
-                border-radius: 0.75rem;
-                padding: 1rem;
-                margin-bottom: 1rem;
-            }
-            
-            .model-selector {
-                display: flex;
-                gap: 0.5rem;
-                flex-wrap: wrap;
-                margin-bottom: 1rem;
-            }
-            
-            .model-btn {
-                padding: 0.5rem 1rem;
-                border: 1px solid #2d2d2d;
-                border-radius: 2rem;
-                background: transparent;
-                color: #8e8ea0;
-                cursor: pointer;
-                transition: all 0.2s;
-                font-size: 0.85rem;
-            }
-            
-            .model-btn:hover, .model-btn.active {
-                background: #10a37f;
-                color: white;
-                border-color: #10a37f;
-            }
-            
-            .model-btn:disabled {
-                opacity: 0.5;
-                cursor: not-allowed;
-            }
-            
-            .chat-messages {
-                flex: 1;
-                overflow-y: auto;
-                padding: 1rem;
-                background: #1e1e1e;
-                border: 1px solid #2d2d2d;
-                border-radius: 0.75rem;
-                margin-bottom: 1rem;
-            }
-            
-            .message {
-                margin-bottom: 1.5rem;
-                display: flex;
-                gap: 1rem;
-            }
-            
-            .message.user {
-                flex-direction: row-reverse;
-            }
-            
-            .message-avatar {
-                width: 32px;
-                height: 32px;
-                border-radius: 50%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 1rem;
-                flex-shrink: 0;
-            }
-            
-            .message.user .message-avatar {
-                background: #10a37f;
-            }
-            
-            .message.ai .message-avatar {
-                background: #8e8ea0;
-            }
-            
-            .message-content {
-                background: #2d2d2d;
-                padding: 1rem;
-                border-radius: 1rem;
-                max-width: 70%;
-                line-height: 1.5;
-            }
-            
-            .message.user .message-content {
-                background: #10a37f;
-                margin-left: auto;
-            }
-            
-            .chat-input-container {
-                position: relative;
-            }
-            
-            .chat-input {
-                width: 100%;
-                min-height: 60px;
-                max-height: 200px;
-                padding: 1rem 3rem 1rem 1rem;
-                background: #2d2d2d;
-                border: 1px solid #4d4d4f;
-                border-radius: 0.75rem;
-                color: white;
-                font-size: 1rem;
-                resize: none;
-                outline: none;
-            }
-            
-            .chat-input:focus {
-                border-color: #10a37f;
-            }
-            
-            .send-btn {
-                position: absolute;
-                right: 0.5rem;
-                bottom: 0.5rem;
-                width: 2rem;
-                height: 2rem;
-                background: #10a37f;
-                border: none;
-                border-radius: 0.25rem;
-                color: white;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            
-            .send-btn:hover {
-                background: #0d8a6b;
-            }
-            
-            .send-btn:disabled {
-                background: #4d4d4f;
-                cursor: not-allowed;
-            }
-            
-            .earnings-banner {
-                background: linear-gradient(90deg, #10a37f, #0d8a6b);
-                padding: 1rem;
-                border-radius: 0.75rem;
-                margin-bottom: 1rem;
-                text-align: center;
-            }
-            
-            .referral-section {
-                background: #1e1e1e;
-                border: 1px solid #2d2d2d;
-                border-radius: 0.75rem;
-                padding: 1rem;
-                margin-top: 1rem;
-            }
-            
-            .referral-code {
-                background: #2d2d2d;
-                padding: 0.5rem;
-                border-radius: 0.5rem;
-                font-family: monospace;
-                margin: 0.5rem 0;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-            }
-            
-            .copy-btn {
-                background: #10a37f;
-                border: none;
-                color: white;
-                padding: 0.25rem 0.5rem;
-                border-radius: 0.25rem;
-                cursor: pointer;
-                font-size: 0.8rem;
-            }
-            
-            @media (max-width: 768px) {
-                .sidebar {
-                    transform: translateX(-100%);
-                    transition: transform 0.3s;
-                }
-                
-                .sidebar.open {
-                    transform: translateX(0);
-                }
-                
-                .main-content {
-                    margin-left: 0;
-                    padding: 1rem;
-                }
-                
-                .chat-container {
-                    height: calc(100vh - 2rem);
-                }
-            }
-        </style>
-    </head>
-    <body>
-        <div class="sidebar">
-            <div class="sidebar-header">
-                <h2>🤖 {{ app_name }}</h2>
-                <div class="user-info">
-                    <div>{{ user.username }}</div>
-                    <div>{{ user.email }}</div>
-                    {% if user.is_premium() %}
-                        <div style="color: #10a37f;">✨ Premium</div>
-                    {% endif %}
-                </div>
-            </div>
-            
-            <ul class="nav-menu">
-                <li><a href="#" class="active"><i class="fas fa-comments"></i> Chat</a></li>
-                <li><a href="#stats"><i class="fas fa-chart-bar"></i> Statistics</a></li>
-                <li><a href="#earnings"><i class="fas fa-coins"></i> Earnings</a></li>
-                <li><a href="#referrals"><i class="fas fa-users"></i> Referrals</a></li>
-                {% if user.role == 'admin' %}
-                    <li><a href="{{ url_for('admin_dashboard') }}"><i class="fas fa-cog"></i> Admin Panel</a></li>
-                {% endif %}
-                <li><a href="{{ url_for('index') }}"><i class="fas fa-home"></i> Home</a></li>
-                <li><a href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
-            </ul>
-        </div>
-
-        <div class="main-content">
-            <div class="earnings-banner">
-                <h3>💰 You've earned ₹{{ "%.2f"|format(user.total_earned) }} so far!</h3>
-                <p>Keep chatting and referring friends to earn more!</p>
-            </div>
-            
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <h3>💰 Wallet Balance</h3>
-                    <div class="value">₹{{ "%.2f"|format(user.wallet) }}</div>
-                </div>
-                <div class="stat-card">
-                    <h3>💬 Total Chats</h3>
-                    <div class="value">{{ user.chats_count }}</div>
-                </div>
-                <div class="stat-card">
-                    <h3>👥 Referrals</h3>
-                    <div class="value">{{ user.referrals_count }}</div>
-                </div>
-                <div class="stat-card">
-                    <h3>📈 Total Earned</h3>
-                    <div class="value">₹{{ "%.2f"|format(user.total_earned) }}</div>
-                </div>
-            </div>
-
-            <div class="chat-container">
-                <div class="chat-header">
-                    <h3>🧠 Choose Your AI Model</h3>
-                    <div class="model-selector">
-                        {% for model in available_models %}
-                            <button class="model-btn {{ 'active' if model.key == 'free' else '' }}" 
-                                    data-model="{{ model.key }}" 
-                                    data-cost="{{ model.cost }}"
-                                    {{ 'disabled' if not model.available else '' }}>
-                                {{ model.name }}
-                                {% if model.cost > 0 %}
-                                    (₹{{ model.cost }})
-                                {% endif %}
-                                {% if not model.available %}
-                                    🔒
-                                {% endif %}
-                            </button>
-                        {% endfor %}
-                    </div>
-                    <p id="model-description" style="color: #8e8ea0; font-size: 0.9rem; margin-top: 0.5rem;">
-                        💝 Free Model - Basic conversations
-                    </p>
-                </div>
-
-                <div class="chat-messages" id="chatMessages">
-                    <div class="message ai">
-                        <div class="message-avatar">🤖</div>
-                        <div class="message-content">
-                            Hello {{ user.username }}! I'm Ganesh AI, your advanced AI assistant. I can help you with:
-                            <br><br>
-                            • 💬 Intelligent conversations
-                            • 📝 Content creation
-                            • 🧮 Problem solving
-                            • 💡 Creative ideas
-                            • 📚 Learning assistance
-                            <br><br>
-                            Choose an AI model above and start chatting! 🚀
-                        </div>
-                    </div>
-                </div>
-
-                <div class="chat-input-container">
-                    <textarea class="chat-input" id="chatInput" placeholder="Type your message here..." rows="1"></textarea>
-                    <button class="send-btn" id="sendBtn">
-                        <i class="fas fa-paper-plane"></i>
-                    </button>
-                </div>
-            </div>
-
-            <div class="referral-section">
-                <h3>🔗 Refer Friends & Earn ₹{{ referral_bonus }} per referral!</h3>
-                <p>Share your referral code and earn money when friends join:</p>
-                <div class="referral-code">
-                    <span>{{ user.referral_code }}</span>
-                    <button class="copy-btn" onclick="copyReferralCode()">Copy</button>
-                </div>
-                <p style="font-size: 0.9rem; color: #8e8ea0;">
-                    Referral Link: {{ request.url_root }}register?ref={{ user.referral_code }}
-                </p>
-            </div>
-        </div>
-
-        <script>
-            let selectedModel = 'free';
-            let isLoading = false;
-
-            // Model selection
-            document.querySelectorAll('.model-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    if (this.disabled) return;
-                    
-                    document.querySelectorAll('.model-btn').forEach(b => b.classList.remove('active'));
-                    this.classList.add('active');
-                    selectedModel = this.dataset.model;
-                    
-                    // Update description
-                    const descriptions = {
-                        'gpt4': '🚀 Most Advanced AI - Best for complex tasks',
-                        'gpt3.5': '⚡ Fast & Smart - Great for general tasks',
-                        'claude': '🎯 Precise & Analytical - Perfect for reasoning',
-                        'gemini': '🌟 Google\'s Best - Excellent for creativity',
-                        'free': '💝 Free Model - Basic conversations'
-                    };
-                    document.getElementById('model-description').textContent = descriptions[selectedModel] || '';
-                });
-            });
-
-            // Chat functionality
-            const chatInput = document.getElementById('chatInput');
-            const sendBtn = document.getElementById('sendBtn');
-            const chatMessages = document.getElementById('chatMessages');
-
-            function addMessage(content, isUser = false) {
-                const messageDiv = document.createElement('div');
-                messageDiv.className = `message ${isUser ? 'user' : 'ai'}`;
-                
-                messageDiv.innerHTML = `
-                    <div class="message-avatar">${isUser ? '👤' : '🤖'}</div>
-                    <div class="message-content">${content}</div>
-                `;
-                
-                chatMessages.appendChild(messageDiv);
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-            }
-
-            async function sendMessage() {
-                const message = chatInput.value.trim();
-                if (!message || isLoading) return;
-
-                isLoading = true;
-                sendBtn.disabled = true;
-                chatInput.disabled = true;
-
-                // Add user message
-                addMessage(message, true);
-                chatInput.value = '';
-
-                // Add loading message
-                const loadingDiv = document.createElement('div');
-                loadingDiv.className = 'message ai';
-                loadingDiv.innerHTML = `
-                    <div class="message-avatar">🤖</div>
-                    <div class="message-content">Thinking... 🤔</div>
-                `;
-                chatMessages.appendChild(loadingDiv);
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-
-                try {
-                    const response = await fetch('/api/chat', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            message: message,
-                            model: selectedModel
-                        })
-                    });
-
-                    const data = await response.json();
-                    
-                    // Remove loading message
-                    chatMessages.removeChild(loadingDiv);
-                    
-                    if (data.success) {
-                        addMessage(data.response);
-                        
-                        // Update wallet balance if cost was deducted
-                        if (data.cost > 0) {
-                            location.reload(); // Refresh to update balance
-                        }
-                    } else {
-                        addMessage(`❌ Error: ${data.error}`);
-                        
-                        if (data.upgrade_required) {
-                            addMessage('💡 Tip: Upgrade to premium or add funds to use advanced AI models!');
-                        }
-                    }
-                } catch (error) {
-                    chatMessages.removeChild(loadingDiv);
-                    addMessage('❌ Network error. Please try again.');
-                }
-
-                isLoading = false;
-                sendBtn.disabled = false;
-                chatInput.disabled = false;
-                chatInput.focus();
-            }
-
-            // Event listeners
-            sendBtn.addEventListener('click', sendMessage);
-            
-            chatInput.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    sendMessage();
-                }
-            });
-
-            // Auto-resize textarea
-            chatInput.addEventListener('input', function() {
-                this.style.height = 'auto';
-                this.style.height = Math.min(this.scrollHeight, 200) + 'px';
-            });
-
-            // Copy referral code
-            function copyReferralCode() {
-                const code = '{{ user.referral_code }}';
-                navigator.clipboard.writeText(code).then(() => {
-                    alert('Referral code copied to clipboard!');
-                });
-            }
-
-            // Focus on input
-            chatInput.focus();
-        </script>
-    </body>
-    </html>
-    """, 
+    return render_template('dashboard_new.html',
     app_name=APP_NAME,
     user=user,
     transactions=transactions,
     api_usage=api_usage,
-    available_models=available_models,
     referral_bonus=REFERRAL_BONUS
+    )
+
+@app.route('/admin')
+@app.route('/admin/dashboard')
+@login_required
+@admin_required
+def admin_dashboard():
+    """Advanced Admin Control Panel"""
+    user = User.query.get(session['user_id'])
+    
+    # Get comprehensive statistics
+    stats = {
+        'total_users': User.query.count(),
+        'total_revenue': db.session.query(db.func.sum(Transaction.amount)).filter(
+            Transaction.transaction_type == 'credit'
+        ).scalar() or 0,
+        'total_chats': db.session.query(db.func.sum(User.chats_count)).scalar() or 0,
+        'active_users': User.query.filter(
+            User.last_visit >= datetime.utcnow() - timedelta(days=1)
+        ).count(),
+        'premium_users': User.query.filter(
+            User.premium_until > datetime.utcnow()
+        ).count(),
+        'pending_withdrawals': WithdrawalRequest.query.filter_by(status='pending').count(),
+        'total_earnings': db.session.query(db.func.sum(User.total_earned)).scalar() or 0
+    }
+    
+    return render_template('admin_panel.html',
+        app_name=APP_NAME,
+        user=user,
+        stats=stats,
+        domain=DOMAIN,
+        current_time=datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
     )
 
 # =========================
@@ -1895,317 +1405,43 @@ def dashboard():
 # =========================
 
 def setup_telegram():
-    """Setup Telegram bot with handlers"""
+    """Setup advanced Telegram bot system"""
     if not TELEGRAM_TOKEN:
         log("telegram", "WARNING", "Telegram token not configured. Skipping bot setup.")
         return
     
     try:
-        from telegram import Update
-        from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
+        # Import the advanced bot system
+        from telegram_bot import ganesh_bot, start_telegram_bot
         import threading
+        import asyncio
         
-        # Create application
-        global telegram_app
-        telegram_app = Application.builder().token(TELEGRAM_TOKEN).build()
-        
-        # Add handlers
-        telegram_app.add_handler(CommandHandler("start", tg_start))
-        telegram_app.add_handler(CommandHandler("gpt4", lambda update, context: tg_model_select(update, context, "gpt-4")))
-        telegram_app.add_handler(CommandHandler("claude", lambda update, context: tg_model_select(update, context, "claude-3-sonnet")))
-        telegram_app.add_handler(CommandHandler("gemini", lambda update, context: tg_model_select(update, context, "gemini-pro")))
-        telegram_app.add_handler(CommandHandler("gpt3", lambda update, context: tg_model_select(update, context, "gpt-3.5-turbo")))
-        telegram_app.add_handler(CommandHandler("balance", tg_balance))
-        telegram_app.add_handler(CommandHandler("help", tg_help))
-        telegram_app.add_handler(CallbackQueryHandler(tg_callback_query))
-        telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, tg_message))
-        
-        # Start bot in a separate thread for production
-        def start_bot():
+        # Start bot in a separate thread
+        def start_bot_thread():
             try:
-                if not DEBUG:
-                    # Use webhook mode for production
-                    webhook_url = f"{DOMAIN}/telegram_webhook"
-                    telegram_app.run_webhook(
-                        listen="0.0.0.0",
-                        port=int(os.getenv('TELEGRAM_PORT', 8443)),
-                        webhook_url=webhook_url,
-                        url_path="telegram_webhook"
-                    )
-                else:
-                    # For development, use polling
-                    telegram_app.run_polling()
+                # Create new event loop for the thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                # Start the bot
+                loop.run_until_complete(start_telegram_bot())
+                
             except Exception as e:
                 log("telegram", "ERROR", f"Bot thread error: {e}")
         
         # Start bot in background thread
-        bot_thread = threading.Thread(target=start_bot, daemon=True)
+        bot_thread = threading.Thread(target=start_bot_thread, daemon=True)
         bot_thread.start()
         
-        log("telegram", "INFO", "Telegram bot setup completed successfully")
+        log("telegram", "INFO", "Advanced Telegram bot system started successfully")
         
-    except ImportError:
-        log("telegram", "ERROR", "python-telegram-bot not installed. Skipping bot setup.")
+    except ImportError as e:
+        log("telegram", "ERROR", f"Telegram bot dependencies not available: {e}")
     except Exception as e:
         log("telegram", "ERROR", f"Failed to setup Telegram bot: {e}")
 
 # Global telegram app instance
 telegram_app = None
-
-# =========================
-# TELEGRAM BOT HANDLERS
-# =========================
-
-async def tg_start(update: Update, context):
-    """Handle /start command"""
-    try:
-        user_id = str(update.effective_user.id)
-        username = update.effective_user.username or f"user_{user_id}"
-        
-        # Get or create user
-        user = User.query.filter_by(telegram_id=user_id).first()
-        if not user:
-            user = User(
-                username=username,
-                email=f"{username}@telegram.user",
-                telegram_id=user_id
-            )
-            user.set_password("telegram_user")
-            user.generate_referral_code()
-            user.wallet = 25.0  # Welcome bonus
-            db.session.add(user)
-            db.session.commit()
-            
-            welcome_text = f"""
-🎉 **Welcome to {APP_NAME}!**
-
-🎁 **Welcome Bonus**: ₹25 credited to your account!
-💰 **Your Balance**: ₹{user.wallet:.2f}
-
-🤖 **Available AI Models**:
-/gpt4 - GPT-4 Turbo (₹2.00/chat)
-/claude - Claude 3 Sonnet (₹1.50/chat)  
-/gemini - Gemini Pro (₹1.00/chat)
-/gpt3 - GPT-3.5 Turbo (₹1.50/chat)
-
-💡 **Commands**:
-/balance - Check your balance
-/help - Get help
-
-🔗 **Web App**: {DOMAIN}
-👨‍💼 **Admin Panel**: {DOMAIN}/admin
-
-Start chatting with any AI model! 🚀
-"""
-        else:
-            welcome_text = f"""
-👋 **Welcome back to {APP_NAME}!**
-
-💰 **Your Balance**: ₹{user.wallet:.2f}
-📊 **Total Chats**: {user.chats_count}
-🎯 **Referrals**: {user.referrals_count}
-
-🤖 **Select AI Model**:
-/gpt4 - GPT-4 Turbo (₹2.00/chat)
-/claude - Claude 3 Sonnet (₹1.50/chat)
-/gemini - Gemini Pro (₹1.00/chat)
-/gpt3 - GPT-3.5 Turbo (₹1.50/chat)
-
-Type your message to start chatting! 💬
-"""
-        
-        await update.message.reply_text(welcome_text, parse_mode='Markdown')
-        
-    except Exception as e:
-        log("telegram", "ERROR", f"Error in /start command: {e}")
-        await update.message.reply_text("❌ Sorry, something went wrong. Please try again.")
-
-async def tg_model_select(update: Update, context, model_name: str):
-    """Handle model selection commands"""
-    try:
-        user_id = str(update.effective_user.id)
-        user = User.query.filter_by(telegram_id=user_id).first()
-        
-        if not user:
-            await update.message.reply_text("❌ Please start with /start first.")
-            return
-            
-        # Store selected model in context
-        context.user_data['selected_model'] = model_name
-        
-        model_info = {
-            "gpt-4": {"name": "GPT-4 Turbo", "cost": 2.00},
-            "claude-3-sonnet": {"name": "Claude 3 Sonnet", "cost": 1.50},
-            "gemini-pro": {"name": "Gemini Pro", "cost": 1.00},
-            "gpt-3.5-turbo": {"name": "GPT-3.5 Turbo", "cost": 1.50}
-        }
-        
-        info = model_info.get(model_name, {"name": "Unknown", "cost": 0.10})
-        
-        await update.message.reply_text(
-            f"🤖 **{info['name']} Selected**\n\n"
-            f"💰 **Cost**: ₹{info['cost']:.2f} per message\n"
-            f"💳 **Your Balance**: ₹{user.wallet:.2f}\n\n"
-            f"💬 Send me your message to start chatting!",
-            parse_mode='Markdown'
-        )
-        
-    except Exception as e:
-        log("telegram", "ERROR", f"Error in model selection: {e}")
-        await update.message.reply_text("❌ Error selecting model. Please try again.")
-
-async def tg_balance(update: Update, context):
-    """Handle /balance command"""
-    try:
-        user_id = str(update.effective_user.id)
-        user = User.query.filter_by(telegram_id=user_id).first()
-        
-        if not user:
-            await update.message.reply_text("❌ Please start with /start first.")
-            return
-            
-        balance_text = f"""
-💰 **Account Balance**
-
-💳 **Current Balance**: ₹{user.wallet:.2f}
-📊 **Total Earned**: ₹{user.total_earned:.2f}
-💬 **Total Chats**: {user.chats_count}
-🎯 **Referrals**: {user.referrals_count}
-
-🔗 **Referral Code**: `{user.referral_code}`
-💡 **Earn ₹10 for each referral!**
-
-🌐 **Web Dashboard**: {DOMAIN}
-"""
-        
-        await update.message.reply_text(balance_text, parse_mode='Markdown')
-        
-    except Exception as e:
-        log("telegram", "ERROR", f"Error in /balance command: {e}")
-        await update.message.reply_text("❌ Error fetching balance. Please try again.")
-
-async def tg_help(update: Update, context):
-    """Handle /help command"""
-    help_text = f"""
-🤖 **{APP_NAME} - Help**
-
-**🎯 Available Commands:**
-/start - Start the bot and get welcome bonus
-/gpt4 - Use GPT-4 Turbo (₹2.00/chat)
-/claude - Use Claude 3 Sonnet (₹1.50/chat)
-/gemini - Use Gemini Pro (₹1.00/chat)
-/gpt3 - Use GPT-3.5 Turbo (₹1.50/chat)
-/balance - Check your balance and stats
-/help - Show this help message
-
-**💰 How to Earn:**
-• Get ₹25 welcome bonus on signup
-• Refer friends and earn ₹10 per referral
-• Use referral code: Share your code with friends
-
-**🌐 Web Features:**
-• Full dashboard at {DOMAIN}
-• Admin panel for advanced features
-• Real-time earnings tracking
-
-**💡 Tips:**
-• Select a model first, then send your message
-• Check your balance regularly
-• Share your referral code to earn more!
-
-Need more help? Contact {SUPPORT_USERNAME}
-"""
-    
-    await update.message.reply_text(help_text, parse_mode='Markdown')
-
-async def tg_message(update: Update, context):
-    """Handle regular text messages"""
-    try:
-        user_id = str(update.effective_user.id)
-        user = User.query.filter_by(telegram_id=user_id).first()
-        
-        if not user:
-            await update.message.reply_text("❌ Please start with /start first.")
-            return
-            
-        # Get selected model or use default
-        selected_model = context.user_data.get('selected_model', 'gpt-3.5-turbo')
-        message_text = update.message.text
-        
-        # Check if user has sufficient balance
-        model_costs = {
-            "gpt-4": 2.00,
-            "claude-3-sonnet": 1.50,
-            "gemini-pro": 1.00,
-            "gpt-3.5-turbo": 1.50
-        }
-        
-        cost = model_costs.get(selected_model, 0.10)
-        
-        if user.wallet < cost:
-            await update.message.reply_text(
-                f"❌ **Insufficient Balance**\n\n"
-                f"💰 **Required**: ₹{cost:.2f}\n"
-                f"💳 **Your Balance**: ₹{user.wallet:.2f}\n\n"
-                f"🔗 **Add funds**: {DOMAIN}\n"
-                f"🎯 **Refer friends**: Earn ₹10 per referral!",
-                parse_mode='Markdown'
-            )
-            return
-            
-        # Send typing indicator
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
-        
-        # Get AI response
-        ai_manager = AIModelManager()
-        response = await ai_manager.get_response(message_text, selected_model)
-        
-        if response:
-            # Deduct cost and update stats
-            user.wallet -= cost
-            user.chats_count += 1
-            
-            # Add transaction record
-            transaction = Transaction(
-                user_id=user.id,
-                amount=-cost,
-                transaction_type='chat',
-                status='completed',
-                description=f"AI Chat - {selected_model}"
-            )
-            db.session.add(transaction)
-            db.session.commit()
-            
-            # Send response
-            await update.message.reply_text(
-                f"🤖 **{selected_model.upper()}**: {response}\n\n"
-                f"💰 **Balance**: ₹{user.wallet:.2f} (-₹{cost:.2f})",
-                parse_mode='Markdown'
-            )
-            
-            log("telegram", "INFO", f"AI response sent to user {user_id}")
-            
-        else:
-            await update.message.reply_text("❌ Sorry, I couldn't process your request. Please try again.")
-            
-    except Exception as e:
-        log("telegram", "ERROR", f"Error processing message: {e}")
-        await update.message.reply_text("❌ Something went wrong. Please try again.")
-
-async def tg_callback_query(update: Update, context):
-    """Handle callback queries from inline keyboards"""
-    try:
-        query = update.callback_query
-        await query.answer()
-        
-        # Handle different callback data
-        if query.data.startswith('model_'):
-            model_name = query.data.replace('model_', '')
-            context.user_data['selected_model'] = model_name
-            await query.edit_message_text(f"✅ Model {model_name} selected! Send your message.")
-            
-    except Exception as e:
-        log("telegram", "ERROR", f"Error in callback query: {e}")
 
 # =========================
 # MAIN APPLICATION STARTUP
@@ -2271,6 +1507,725 @@ def migrate_database():
             log("database", "INFO", "Database recreated successfully")
         except Exception as e2:
             log("database", "ERROR", f"Database recreation failed: {e2}")
+
+# =========================
+# API ROUTES FOR FRONTEND
+# =========================
+
+@app.route('/api/chat', methods=['POST'])
+@login_required
+def api_chat():
+    """Handle chat messages from frontend"""
+    try:
+        data = request.get_json()
+        message = data.get('message', '').strip()
+        model = data.get('model', 'ganesh-free')
+        conversation_id = data.get('conversation_id')
+        
+        if not message:
+            return jsonify({'success': False, 'message': 'Message is required'})
+        
+        user = User.query.get(session['user_id'])
+        if not user:
+            return jsonify({'success': False, 'message': 'User not found'})
+        
+        # Check if premium model and user has access
+        premium_models = ['gpt-4-turbo', 'claude-3-sonnet', 'gemini-pro']
+        if model in premium_models:
+            if not user.premium_until or user.premium_until < datetime.utcnow():
+                return jsonify({
+                    'success': False, 
+                    'message': 'Premium subscription required for this model',
+                    'premium_required': True
+                })
+        
+        # Generate AI response based on model
+        response = generate_ai_response(message, model, user)
+        
+        # Track chat for monetization
+        track_chat(user.id, message, response, model)
+        
+        # Update user stats
+        user.chats_count = (user.chats_count or 0) + 1
+        user.add_earnings(CHAT_PAY_RATE, f"Chat with {model}")
+        db.session.commit()
+        
+        # Return response with updated stats
+        return jsonify({
+            'success': True,
+            'response': response,
+            'model': model,
+            'stats': {
+                'wallet': float(user.wallet),
+                'chats_count': user.chats_count,
+                'total_earned': float(user.total_earned)
+            }
+        })
+        
+    except Exception as e:
+        log("api", "ERROR", f"Chat API error: {e}")
+        return jsonify({'success': False, 'message': 'Internal server error'})
+
+def generate_ai_response(message, model, user):
+    """Generate AI response based on selected model"""
+    try:
+        # Free model - simple responses
+        if model == 'ganesh-free':
+            return generate_free_response(message, user)
+        
+        # Premium models - use external APIs
+        elif model == 'gpt-4-turbo':
+            return generate_gpt4_response(message, user)
+        
+        elif model == 'claude-3-sonnet':
+            return generate_claude_response(message, user)
+        
+        elif model == 'gemini-pro':
+            return generate_gemini_response(message, user)
+        
+        else:
+            return generate_free_response(message, user)
+            
+    except Exception as e:
+        log("ai", "ERROR", f"AI response generation failed: {e}")
+        return "I apologize, but I'm experiencing technical difficulties. Please try again in a moment."
+
+def generate_free_response(message, user):
+    """Generate response for free model"""
+    message_lower = message.lower()
+    
+    # Greeting responses
+    if any(word in message_lower for word in ['hello', 'hi', 'hey', 'namaste']):
+        return f"Hello {user.username}! 👋 I'm Ganesh AI, your intelligent assistant. How can I help you today?"
+    
+    # Help responses
+    elif any(word in message_lower for word in ['help', 'what can you do', 'features']):
+        return """I can help you with:
+        
+🧠 **Intelligent Conversations** - Chat about any topic
+📝 **Content Creation** - Writing, essays, stories
+🔧 **Problem Solving** - Technical and general problems  
+💡 **Creative Ideas** - Brainstorming and inspiration
+📚 **Learning Assistance** - Explanations and tutorials
+💼 **Business Advice** - Strategy and planning
+🎯 **Goal Setting** - Personal and professional goals
+
+For advanced features like GPT-4, Claude, or Gemini, upgrade to Premium! 🚀"""
+    
+    # About responses
+    elif any(word in message_lower for word in ['about', 'who are you', 'what are you']):
+        return f"""I'm **Ganesh AI** 🤖, your advanced AI assistant created by {BUSINESS_NAME}.
+
+✨ **What makes me special:**
+- 🧠 Intelligent conversations on any topic
+- 💡 Creative problem-solving abilities  
+- 📚 Vast knowledge base
+- 🎯 Personalized responses
+- 💰 Earn money while chatting!
+
+**Current Stats:**
+- 💬 Chats: {user.chats_count or 0}
+- 💰 Earned: ₹{user.total_earned or 0:.2f}
+- 👥 Referrals: {user.referrals_count or 0}
+
+Upgrade to Premium for access to GPT-4, Claude, and Gemini! 🚀"""
+    
+    # Earnings/money related
+    elif any(word in message_lower for word in ['earn', 'money', 'payment', 'withdraw']):
+        return f"""💰 **Earning with Ganesh AI:**
+
+**Your Current Stats:**
+- 💰 Wallet Balance: ₹{user.wallet:.2f}
+- 📈 Total Earned: ₹{user.total_earned:.2f}
+- 💬 Chat Earnings: ₹{(user.chats_count or 0) * CHAT_PAY_RATE:.2f}
+- 👥 Referral Earnings: ₹{(user.referrals_count or 0) * REFERRAL_BONUS:.2f}
+
+**How to Earn More:**
+- 💬 Chat with me (₹{CHAT_PAY_RATE} per chat)
+- 🔗 Refer friends (₹{REFERRAL_BONUS} per referral)
+- 👀 Daily visits (₹{VISIT_PAY_RATE} per visit)
+
+**Withdrawal:** Minimum ₹100 to your bank account
+**Referral Code:** {user.referral_code}
+
+Keep chatting to earn more! 🚀"""
+    
+    # Technical questions
+    elif any(word in message_lower for word in ['code', 'programming', 'python', 'javascript', 'html']):
+        return """👨‍💻 **Programming & Development:**
+
+I can help you with:
+- 🐍 Python programming
+- 🌐 Web development (HTML, CSS, JavaScript)
+- 📱 Mobile app development
+- 🗄️ Database design
+- 🔧 Debugging and troubleshooting
+- 📚 Learning resources and tutorials
+
+**Example:** "Write a Python function to calculate fibonacci numbers"
+
+For advanced coding assistance with detailed explanations, try our Premium models like GPT-4! 🚀"""
+    
+    # Business related
+    elif any(word in message_lower for word in ['business', 'startup', 'marketing', 'strategy']):
+        return """💼 **Business & Entrepreneurship:**
+
+I can assist with:
+- 🚀 Startup ideas and validation
+- 📊 Business planning and strategy
+- 📈 Marketing and growth tactics
+- 💰 Financial planning
+- 🎯 Market research
+- 👥 Team building advice
+
+**Current Business Opportunity:** 
+Earn money by using our AI platform! You've already earned ₹{user.total_earned:.2f}
+
+For detailed business analysis and advanced strategies, upgrade to Premium! 💎"""
+    
+    # Creative requests
+    elif any(word in message_lower for word in ['story', 'poem', 'creative', 'write']):
+        return """✨ **Creative Writing & Content:**
+
+I can create:
+- 📖 Stories and narratives
+- 🎭 Poems and verses  
+- ✍️ Articles and blogs
+- 📝 Essays and reports
+- 🎨 Creative content ideas
+- 📱 Social media posts
+
+**Example:** "Write a short story about AI and humans"
+
+For premium creative content with advanced storytelling, try Claude 3 Sonnet! 🎨"""
+    
+    # Default intelligent response
+    else:
+        responses = [
+            f"That's an interesting question, {user.username}! Let me think about that...",
+            f"Great question! Based on what you're asking about '{message[:50]}{'...' if len(message) > 50 else ''}'",
+            f"I understand you're asking about this topic. Here's my perspective...",
+            f"Thanks for sharing that with me, {user.username}. Let me help you with this...",
+        ]
+        
+        import random
+        base_response = random.choice(responses)
+        
+        # Add contextual response based on message content
+        if '?' in message:
+            return f"""{base_response}
+
+While I can provide basic assistance with your question, for more detailed and accurate responses, I recommend upgrading to our Premium models:
+
+🚀 **GPT-4 Turbo** - Most advanced reasoning
+🎨 **Claude 3 Sonnet** - Creative and analytical  
+🧠 **Gemini Pro** - Google's latest AI
+
+**Your Progress:**
+- 💬 Chats: {user.chats_count or 0} (Earned: ₹{(user.chats_count or 0) * CHAT_PAY_RATE:.2f})
+- 💰 Total Earned: ₹{user.total_earned:.2f}
+
+Keep chatting to earn more! Each message earns you ₹{CHAT_PAY_RATE}! 💰"""
+        
+        else:
+            return f"""{base_response}
+
+I'm here to help with any questions or tasks you have! As your AI assistant, I can:
+
+🧠 Answer questions and provide explanations
+💡 Help with creative projects and ideas
+🔧 Assist with problem-solving
+📚 Provide learning resources
+
+**Earning Update:** You just earned ₹{CHAT_PAY_RATE} for this chat! 
+**Total Earned:** ₹{user.total_earned:.2f}
+
+What would you like to explore next? 🚀"""
+
+def generate_gpt4_response(message, user):
+    """Generate GPT-4 response (placeholder for actual API integration)"""
+    return f"""🚀 **GPT-4 Turbo Response:**
+
+Hello {user.username}! I'm processing your message with GPT-4's advanced capabilities.
+
+**Your Message:** "{message}"
+
+**Advanced Analysis:** This is where GPT-4 would provide a sophisticated, detailed response with:
+- Deep contextual understanding
+- Multi-step reasoning
+- Comprehensive explanations
+- Creative problem-solving
+
+*Note: This is a demo response. In production, this would connect to OpenAI's GPT-4 API for real responses.*
+
+**Premium Benefits Active:**
+- ✅ Advanced AI models
+- ✅ Detailed responses  
+- ✅ Priority processing
+- ✅ Unlimited chats
+
+Keep exploring with Premium! 💎"""
+
+def generate_claude_response(message, user):
+    """Generate Claude response (placeholder for actual API integration)"""
+    return f"""🎨 **Claude 3 Sonnet Response:**
+
+Greetings {user.username}! I'm Claude, known for thoughtful and nuanced responses.
+
+**Your Inquiry:** "{message}"
+
+**Thoughtful Analysis:** Claude would provide:
+- Balanced perspectives
+- Creative insights
+- Ethical considerations
+- Well-structured explanations
+
+*Note: This is a demo response. In production, this would connect to Anthropic's Claude API.*
+
+**Premium Features:**
+- 🎭 Creative writing excellence
+- 🧠 Analytical thinking
+- ⚖️ Balanced viewpoints
+- 📚 Comprehensive knowledge
+
+Your Premium subscription is enhancing your AI experience! ✨"""
+
+def generate_gemini_response(message, user):
+    """Generate Gemini response (placeholder for actual API integration)"""
+    return f"""🧠 **Gemini Pro Response:**
+
+Hello {user.username}! Google's Gemini Pro is analyzing your request.
+
+**Processing:** "{message}"
+
+**Advanced Capabilities:** Gemini Pro offers:
+- Multi-modal understanding
+- Real-time information
+- Advanced reasoning
+- Google's latest AI technology
+
+*Note: This is a demo response. In production, this would connect to Google's Gemini API.*
+
+**Premium Advantage:**
+- 🌐 Latest AI technology
+- 🔍 Enhanced accuracy
+- ⚡ Fast processing
+- 🎯 Precise responses
+
+Experience the future of AI with Premium! 🚀"""
+
+@app.route('/api/user/stats', methods=['GET'])
+@login_required
+def api_user_stats():
+    """Get current user statistics"""
+    try:
+        user = User.query.get(session['user_id'])
+        if not user:
+            return jsonify({'success': False, 'message': 'User not found'})
+        
+        return jsonify({
+            'success': True,
+            'stats': {
+                'wallet': float(user.wallet),
+                'total_earned': float(user.total_earned),
+                'chats_count': user.chats_count or 0,
+                'visits_count': user.visits_count or 0,
+                'referrals_count': user.referrals_count or 0,
+                'is_premium': user.premium_until and user.premium_until > datetime.utcnow()
+            }
+        })
+    except Exception as e:
+        log("api", "ERROR", f"Stats API error: {e}")
+        return jsonify({'success': False, 'message': 'Internal server error'})
+
+@app.route('/api/withdrawal', methods=['POST'])
+@login_required
+def api_withdrawal():
+    """Handle withdrawal requests"""
+    try:
+        data = request.get_json()
+        amount = float(data.get('amount', 0))
+        
+        user = User.query.get(session['user_id'])
+        if not user:
+            return jsonify({'success': False, 'message': 'User not found'})
+        
+        if amount < 100:
+            return jsonify({'success': False, 'message': 'Minimum withdrawal amount is ₹100'})
+        
+        if amount > user.wallet:
+            return jsonify({'success': False, 'message': 'Insufficient balance'})
+        
+        # Create withdrawal request
+        withdrawal = WithdrawalRequest(
+            user_id=user.id,
+            amount=amount,
+            status='pending'
+        )
+        
+        # Deduct from wallet
+        user.wallet -= amount
+        
+        db.session.add(withdrawal)
+        db.session.commit()
+        
+        log("withdrawal", "INFO", f"Withdrawal request: User {user.username}, Amount: ₹{amount}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Withdrawal request submitted successfully!',
+            'new_balance': float(user.wallet)
+        })
+        
+    except Exception as e:
+        log("api", "ERROR", f"Withdrawal API error: {e}")
+        return jsonify({'success': False, 'message': 'Internal server error'})
+
+@app.route('/api/subscribe', methods=['POST'])
+@login_required
+def api_subscribe():
+    """Handle premium subscription"""
+    try:
+        data = request.get_json()
+        plan = data.get('plan', 'monthly')
+        
+        user = User.query.get(session['user_id'])
+        if not user:
+            return jsonify({'success': False, 'message': 'User not found'})
+        
+        # Calculate amount and duration
+        if plan == 'monthly':
+            amount = PREMIUM_MONTHLY
+            duration_days = 30
+        elif plan == 'yearly':
+            amount = PREMIUM_YEARLY
+            duration_days = 365
+        else:
+            return jsonify({'success': False, 'message': 'Invalid plan'})
+        
+        # Create payment URL (placeholder for Cashfree integration)
+        payment_url = f"/payment/premium?plan={plan}&amount={amount}&user_id={user.id}"
+        
+        return jsonify({
+            'success': True,
+            'payment_url': payment_url,
+            'amount': amount,
+            'plan': plan
+        })
+        
+    except Exception as e:
+        log("api", "ERROR", f"Subscribe API error: {e}")
+        return jsonify({'success': False, 'message': 'Internal server error'})
+
+@app.route('/api/log-error', methods=['POST'])
+def api_log_error():
+    """Log frontend errors for analysis"""
+    try:
+        data = request.get_json()
+        error_info = {
+            'error': data.get('error'),
+            'stack': data.get('stack'),
+            'timestamp': data.get('timestamp'),
+            'user_agent': data.get('userAgent'),
+            'url': data.get('url'),
+            'user_id': session.get('user_id')
+        }
+        
+        log("frontend_error", "ERROR", f"Frontend error: {error_info}")
+        
+        return jsonify({'success': True})
+    except:
+        return jsonify({'success': False})
+
+# Admin API Routes
+@app.route('/api/admin/stats', methods=['GET'])
+@login_required
+@admin_required
+def api_admin_stats():
+    """Get admin dashboard statistics"""
+    try:
+        # Get comprehensive statistics
+        stats = {
+            'total_users': User.query.count(),
+            'total_revenue': db.session.query(db.func.sum(Transaction.amount)).filter(
+                Transaction.transaction_type == 'credit'
+            ).scalar() or 0,
+            'total_chats': db.session.query(db.func.sum(User.chats_count)).scalar() or 0,
+            'active_users': User.query.filter(
+                User.last_visit >= datetime.utcnow() - timedelta(days=1)
+            ).count(),
+            'premium_users': User.query.filter(
+                User.premium_until > datetime.utcnow()
+            ).count(),
+            'pending_withdrawals': WithdrawalRequest.query.filter_by(status='pending').count(),
+            'total_earnings': db.session.query(db.func.sum(User.total_earned)).scalar() or 0,
+            'today_revenue': db.session.query(db.func.sum(Transaction.amount)).filter(
+                Transaction.transaction_type == 'credit',
+                Transaction.created_at >= datetime.utcnow().date()
+            ).scalar() or 0,
+            'month_revenue': db.session.query(db.func.sum(Transaction.amount)).filter(
+                Transaction.transaction_type == 'credit',
+                Transaction.created_at >= datetime.utcnow().replace(day=1)
+            ).scalar() or 0
+        }
+        
+        # Get recent activity
+        recent_activity = []
+        recent_transactions = Transaction.query.order_by(Transaction.created_at.desc()).limit(10).all()
+        
+        for txn in recent_transactions:
+            user = User.query.get(txn.user_id)
+            recent_activity.append({
+                'time': txn.created_at.isoformat(),
+                'user': user.username if user else 'Unknown',
+                'action': txn.description or f"{txn.transaction_type.title()} Transaction",
+                'amount': float(txn.amount),
+                'status': 'success' if txn.status == 'completed' else 'pending'
+            })
+        
+        return jsonify({
+            'success': True,
+            'stats': stats,
+            'recent_activity': recent_activity
+        })
+        
+    except Exception as e:
+        log("admin", "ERROR", f"Admin stats API error: {e}")
+        return jsonify({'success': False, 'message': 'Failed to get statistics'})
+
+@app.route('/api/admin/users', methods=['GET'])
+@login_required
+@admin_required
+def api_admin_users():
+    """Get all users for admin panel"""
+    user = User.query.get(session['user_id'])
+    if not user or user.role != 'admin':
+        return jsonify({'success': False, 'message': 'Admin access required'})
+    
+    try:
+        users = User.query.all()
+        users_data = []
+        
+        for u in users:
+            users_data.append({
+                'id': u.id,
+                'username': u.username,
+                'email': u.email,
+                'wallet': float(u.wallet),
+                'total_earned': float(u.total_earned),
+                'chats_count': u.chats_count or 0,
+                'referrals_count': u.referrals_count or 0,
+                'is_active': u.is_active,
+                'created_at': u.created_at.isoformat() if u.created_at else None
+            })
+        
+        return jsonify({
+            'success': True,
+            'users': users_data
+        })
+        
+    except Exception as e:
+        log("api", "ERROR", f"Admin users API error: {e}")
+        return jsonify({'success': False, 'message': 'Internal server error'})
+
+@app.route('/api/admin/revenue', methods=['GET'])
+@login_required
+def api_admin_revenue():
+    """Get revenue statistics for admin"""
+    user = User.query.get(session['user_id'])
+    if not user or user.role != 'admin':
+        return jsonify({'success': False, 'message': 'Admin access required'})
+    
+    try:
+        # Calculate revenue statistics
+        total_users = User.query.count()
+        active_users = User.query.filter_by(is_active=True).count()
+        total_earned = db.session.query(db.func.sum(User.total_earned)).scalar() or 0
+        
+        # Today's revenue (placeholder calculation)
+        today = datetime.utcnow().date()
+        today_revenue = total_earned * 0.1  # Placeholder calculation
+        
+        return jsonify({
+            'success': True,
+            'total_revenue': float(total_earned),
+            'today_revenue': float(today_revenue),
+            'total_users': total_users,
+            'active_users': active_users
+        })
+        
+    except Exception as e:
+        log("api", "ERROR", f"Admin revenue API error: {e}")
+        return jsonify({'success': False, 'message': 'Internal server error'})
+
+@app.route('/api/admin/bot/<action>', methods=['POST'])
+@login_required
+def api_admin_bot(action):
+    """Control Telegram bot"""
+    user = User.query.get(session['user_id'])
+    if not user or user.role != 'admin':
+        return jsonify({'success': False, 'message': 'Admin access required'})
+    
+    try:
+        if action == 'start':
+            # Start bot logic here
+            message = "Bot started successfully"
+        elif action == 'stop':
+            # Stop bot logic here  
+            message = "Bot stopped successfully"
+        else:
+            return jsonify({'success': False, 'message': 'Invalid action'})
+        
+        log("admin", "INFO", f"Bot {action} by {user.username}")
+        
+        return jsonify({
+            'success': True,
+            'message': message
+        })
+        
+    except Exception as e:
+        log("api", "ERROR", f"Admin bot API error: {e}")
+        return jsonify({'success': False, 'message': 'Internal server error'})
+
+# =========================
+# PAYMENT API ROUTES
+# =========================
+
+@app.route('/api/payment/create', methods=['POST'])
+@login_required
+def create_payment():
+    """Create payment order"""
+    try:
+        data = request.get_json()
+        amount = float(data.get('amount', 0))
+        purpose = data.get('purpose', 'wallet_topup')
+        
+        if amount < 10:
+            return jsonify({'success': False, 'message': 'Minimum amount is ₹10'})
+        
+        # Import payment system
+        from cashfree_integration import create_payment_order
+        
+        result = create_payment_order(session['user_id'], amount, purpose)
+        return jsonify(result)
+        
+    except Exception as e:
+        log("payment", "ERROR", f"Payment creation error: {e}")
+        return jsonify({'success': False, 'message': 'Payment creation failed'})
+
+@app.route('/api/payment/verify/<order_id>')
+@login_required
+def verify_payment_status(order_id):
+    """Verify payment status"""
+    try:
+        from cashfree_integration import verify_payment
+        
+        result = verify_payment(order_id)
+        return jsonify(result)
+        
+    except Exception as e:
+        log("payment", "ERROR", f"Payment verification error: {e}")
+        return jsonify({'success': False, 'message': 'Verification failed'})
+
+@app.route('/payment/webhook', methods=['POST'])
+def payment_webhook():
+    """Handle Cashfree webhook"""
+    try:
+        webhook_data = request.get_json()
+        signature = request.headers.get('X-Webhook-Signature', '')
+        
+        from cashfree_integration import process_webhook
+        
+        result = process_webhook(webhook_data, signature)
+        
+        if result['success']:
+            return jsonify({'status': 'OK'})
+        else:
+            return jsonify({'status': 'ERROR'}), 400
+            
+    except Exception as e:
+        log("payment", "ERROR", f"Webhook error: {e}")
+        return jsonify({'status': 'ERROR'}), 500
+
+@app.route('/api/payment/methods')
+@login_required
+def get_payment_methods():
+    """Get available payment methods"""
+    try:
+        from cashfree_integration import get_payment_methods
+        
+        methods = get_payment_methods()
+        return jsonify({'success': True, 'methods': methods})
+        
+    except Exception as e:
+        log("payment", "ERROR", f"Payment methods error: {e}")
+        return jsonify({'success': False, 'message': 'Failed to get payment methods'})
+
+@app.route('/api/withdrawal/create', methods=['POST'])
+@login_required
+def create_withdrawal():
+    """Create withdrawal request"""
+    try:
+        data = request.get_json()
+        amount = float(data.get('amount', 0))
+        bank_details = data.get('bank_details', {})
+        
+        if amount < 100:
+            return jsonify({'success': False, 'message': 'Minimum withdrawal is ₹100'})
+        
+        # Validate bank details
+        required_fields = ['account_number', 'ifsc_code', 'account_holder_name']
+        for field in required_fields:
+            if not bank_details.get(field):
+                return jsonify({'success': False, 'message': f'Missing {field}'})
+        
+        from cashfree_integration import create_withdrawal
+        
+        result = create_withdrawal(session['user_id'], amount, bank_details)
+        return jsonify(result)
+        
+    except Exception as e:
+        log("payment", "ERROR", f"Withdrawal creation error: {e}")
+        return jsonify({'success': False, 'message': 'Withdrawal request failed'})
+
+@app.route('/api/transactions')
+@login_required
+def get_transactions():
+    """Get user transaction history"""
+    try:
+        limit = int(request.args.get('limit', 50))
+        
+        from cashfree_integration import get_transaction_history
+        
+        history = get_transaction_history(session['user_id'], limit)
+        return jsonify({'success': True, 'transactions': history})
+        
+    except Exception as e:
+        log("payment", "ERROR", f"Transaction history error: {e}")
+        return jsonify({'success': False, 'message': 'Failed to get transactions'})
+
+@app.route('/payment/success')
+def payment_success():
+    """Payment success page"""
+    order_id = request.args.get('order_id')
+    
+    if order_id:
+        # Verify payment status
+        from cashfree_integration import verify_payment
+        result = verify_payment(order_id)
+        
+        if result.get('success') and result.get('status') == 'PAID':
+            flash('Payment successful! Your account has been updated.', 'success')
+        else:
+            flash('Payment verification pending. Please check back in a few minutes.', 'info')
+    
+    return redirect(url_for('dashboard'))
+
+@app.route('/payment/failed')
+def payment_failed():
+    """Payment failed page"""
+    flash('Payment failed. Please try again or contact support.', 'error')
+    return redirect(url_for('dashboard'))
 
 if __name__ == '__main__':
     log("system", "INFO", f"🚀 Starting {APP_NAME}...")
