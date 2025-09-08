@@ -7,26 +7,26 @@
 ## 🚀 **LIVE DEMO & DIRECT ACCESS**
 
 ### 🌐 **Web Application**
-**Direct Link:** [https://ai-content-bot-bppk.onrender.com](https://ai-content-bot-bppk.onrender.com)
+**Direct Link:** [https://ganesh-ai-working.onrender.com](https://ganesh-ai-working.onrender.com)
 - Modern ChatGPT-like interface
-- Multiple AI models (GPT-4, Claude, Gemini)
-- Real-time earnings dashboard
-- Advanced monetization system
+- Real-time AI responses
+- Instant earnings system
+- Mobile-friendly design
 
 ### 👨‍💼 **Admin Panel**
-**Direct Link:** [https://ai-content-bot-bppk.onrender.com/admin](https://ai-content-bot-bppk.onrender.com/admin)
+**Direct Link:** [https://ganesh-ai-working.onrender.com/admin](https://ganesh-ai-working.onrender.com/admin)
 - Username: `Admin`
 - Password: `12345`
-- Complete analytics dashboard
-- User management system
-- Revenue tracking
+- Complete user management
+- Revenue analytics
+- System monitoring
 
 ### 📱 **Telegram Bot**
-**Direct Link:** [https://t.me/ganeshaibot](https://t.me/ganeshaibot)
+**Bot Username:** [@GaneshAIWorkingBot](https://t.me/GaneshAIWorkingBot)
 - Instant AI responses
-- Multiple AI model support
-- Inline keyboards & commands
 - Earnings with every message
+- Real-time balance tracking
+- All commands working
 
 ---
 
